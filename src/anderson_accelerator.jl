@@ -284,18 +284,16 @@ function qr!(Q::AbstractMatrix{T}, R::AbstractMatrix{T}, Δf::AbstractVector{T},
   m == LinearAlgebra.checksquare(R) || throw(DimensionMismatch())
   1 ≤ j ≤ m || throw(ArgumentError())
 
-  @inbounds for k in 1:(j - 1)
-    qk = view(Q, :, k)
-    ip = dot(qk, Δf)
-    R[k, j] = ip
-
-    axpy!(-ip, qk, Δf)
+  if j > 1
+    Q′ = view(Q, :, 1:j-1)
+    ips = view(R, 1:j-1, j)
+    mul!(ips, Q′', Δf)
+    mul!(Δf, Q′, ips, -1, 1)
   end
-  @inbounds begin
-    nrm_f = norm(Δf, 2)
-    R[j, j] = nrm_f
-    @. Q[:, j] = Δf / nrm_f
-  end
+  
+  nrm_f = norm(Δf, 2)
+  R[j, j] = nrm_f
+  @. Q[:, j] = Δf / nrm_f
   return nothing
 end
 
@@ -311,18 +309,14 @@ end
 
 " Update a single history matrices V = [vgi, vgi+1, ...] ."
 function fill_delta!(j::Int, V::AbstractMatrix{T}, v::AbstractVector{T}, v_last::AbstractVector{T}) where {T <: AbstractFloat}
-  @inbounds for i in eachindex(v)
-    V[i, j] = v[i] - v_last[i]
-  end
+  @. V[:, j] = v - v_last
+  return nothing
 end
 
 "Compute Δf = f - f_last and store result in f_last."
 function compute_Δf!(f_last::AbstractVector{T}, f::AbstractVector{T}) where {T <: AbstractFloat}
-  
-  @inbounds for i in eachindex(f_last)
-    f_last[i] *= -one(T)
-    f_last[i] += f[i]
-  end
+  @. f_last = f - f_last
+  return nothing
 end
 
 "Store a copy of the last x, g, f to be able to compute Δx, Δg, Δf at the next step."
@@ -431,8 +425,8 @@ function accelerate!(g::AbstractVector{T}, x::AbstractVector{T}, aa::AndersonAcc
   else
     # calculate the accelerated candidate point
     #  g .= g - G * eta
-    mul!(g, G, eta)
-    @. g = aa.g_last - g
+    @. g = aa.g_last
+    mul!(g, G, eta, -1, 1)
 
     aa.success = true
     return nothing
